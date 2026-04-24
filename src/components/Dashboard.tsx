@@ -1,15 +1,18 @@
-import React, { useState, useMemo } from 'react';
-import { Transaction } from '../lib/types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Transaction, CATEGORIES } from '../lib/types';
 import { format, isSameDay, startOfWeek, endOfWeek, parseISO, isAfter, isBefore, startOfDay, endOfDay, getDay } from 'date-fns';
 import { 
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, 
     PieChart, Pie, Cell, Legend
 } from 'recharts';
+import { Download } from 'lucide-react';
 
-const COLORS = ['#10b981', '#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
+const COLORS = ['#10b981', '#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#64748b', '#0ea5e9'];
 const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-export default function Dashboard({ transactions, onReset }: { transactions: Transaction[], onReset: () => void }) {
+export default function Dashboard({ transactions: initialTransactions, onUpdateTransactions, onReset }: { transactions: Transaction[], onUpdateTransactions: (ts: Transaction[]) => void, onReset: () => void }) {
+  const [transactions, setTransactions] = useState<Transaction[]>(initialTransactions);
+  
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
   
@@ -20,8 +23,66 @@ export default function Dashboard({ transactions, onReset }: { transactions: Tra
   const [maxAmount, setMaxAmount] = useState("");
   const [selectedDays, setSelectedDays] = useState<number[]>([0,1,2,3,4,5,6]); // 0=Sun, 1=Mon...
 
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setTransactions(initialTransactions);
+  }, [initialTransactions]);
+
   const toggleDay = (day: number) => {
     setSelectedDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]);
+  };
+
+  const applyDatePreset = (preset: 'all' | 'this_month' | 'last_month' | 'last_7_days') => {
+    const today = new Date();
+    if (preset === 'all') {
+      setStartDate("");
+      setEndDate("");
+    } else if (preset === 'this_month') {
+      setStartDate(format(new Date(today.getFullYear(), today.getMonth(), 1), 'yyyy-MM-dd'));
+      setEndDate(format(today, 'yyyy-MM-dd'));
+    } else if (preset === 'last_month') {
+      setStartDate(format(new Date(today.getFullYear(), today.getMonth() - 1, 1), 'yyyy-MM-dd'));
+      setEndDate(format(new Date(today.getFullYear(), today.getMonth(), 0), 'yyyy-MM-dd'));
+    } else if (preset === 'last_7_days') {
+      const pastDate = new Date(today);
+      pastDate.setDate(pastDate.getDate() - 7);
+      setStartDate(format(pastDate, 'yyyy-MM-dd'));
+      setEndDate(format(today, 'yyyy-MM-dd'));
+    }
+  };
+
+  const exportCSV = () => {
+    const headers = ['Date', 'Receipt No', 'Details', 'Category', 'Status', 'Amount', 'Balance'];
+    const rows = filtered.map(t => {
+      const isExpense = t.withdrawn !== 0;
+      const amt = isExpense ? -Math.abs(t.withdrawn) : t.paidIn;
+      return [
+        t.completionTime ? format(t.completionTime, 'yyyy-MM-dd HH:mm:ss') : '',
+        t.receiptNo,
+        `"${t.details.replace(/"/g, '""')}"`,
+        t.category,
+        t.status,
+        amt,
+        t.balance
+      ].join(',');
+    });
+    
+    const blob = new Blob([[headers.join(','), ...rows].join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", "mpesa_statement_export.csv");
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
+  const handleCategoryChange = (receiptNo: string, newCategory: string) => {
+    const updated = transactions.map(t => t.receiptNo === receiptNo ? { ...t, category: newCategory } : t);
+    setTransactions(updated);
+    onUpdateTransactions(updated);
+    setEditingId(null);
   };
 
   const filtered = useMemo(() => {
@@ -130,7 +191,15 @@ export default function Dashboard({ transactions, onReset }: { transactions: Tra
               </div>
 
               <div className="space-y-1">
-                  <span className="text-[11px] text-slate-400">Date Range</span>
+                  <div className="flex justify-between items-end mb-1">
+                      <span className="text-[11px] text-slate-400">Date Range</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 mb-2">
+                      <button onClick={() => applyDatePreset('all')} className="text-[10px] bg-slate-800 border border-slate-700 rounded py-1 hover:bg-slate-700 transition">All Time</button>
+                      <button onClick={() => applyDatePreset('last_7_days')} className="text-[10px] bg-slate-800 border border-slate-700 rounded py-1 hover:bg-slate-700 transition">7 Days</button>
+                      <button onClick={() => applyDatePreset('this_month')} className="text-[10px] bg-slate-800 border border-slate-700 rounded py-1 hover:bg-slate-700 transition">This Month</button>
+                      <button onClick={() => applyDatePreset('last_month')} className="text-[10px] bg-slate-800 border border-slate-700 rounded py-1 hover:bg-slate-700 transition">Last Month</button>
+                  </div>
                   <div className="flex gap-2">
                      <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded px-1 py-1.5 text-white focus:outline-none focus:border-emerald-500 leading-tight" style={{colorScheme: 'dark'}}/>
                      <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded px-1 py-1.5 text-white focus:outline-none focus:border-emerald-500 leading-tight" style={{colorScheme: 'dark'}}/>
@@ -241,6 +310,12 @@ export default function Dashboard({ transactions, onReset }: { transactions: Tra
                   Transaction Ledger
                   <span className="text-[10px] font-normal bg-slate-100 px-2 py-0.5 rounded border text-slate-500">Displaying {filtered.length} results</span>
                 </h2>
+                <div className="flex gap-2">
+                    <button onClick={exportCSV} className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded hover:bg-slate-50 text-[11px] font-medium text-slate-600 transition">
+                        <Download className="w-3.5 h-3.5" />
+                        Export CSV
+                    </button>
+                </div>
               </div>
 
               <div className="flex-1 overflow-auto">
@@ -272,9 +347,26 @@ export default function Dashboard({ transactions, onReset }: { transactions: Tra
                             <div className="text-[10px] text-slate-500 italic mt-0.5">Balance: {t.balance.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
                           </td>
                           <td className="px-4 py-3">
-                            <span className="px-2 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 rounded text-[10px] font-bold uppercase truncate max-w-[120px] inline-block">
-                              {t.category}
-                            </span>
+                            {editingId === t.receiptNo ? (
+                                <select 
+                                    className="border border-emerald-500 px-1 py-0.5 rounded text-[10px] uppercase font-bold focus:outline-none"
+                                    value={t.category}
+                                    onChange={(e) => handleCategoryChange(t.receiptNo, e.target.value)}
+                                    onBlur={() => setEditingId(null)}
+                                    autoFocus
+                                >
+                                    {Object.values(CATEGORIES).map(c => (
+                                        <option key={c} value={c}>{c}</option>
+                                    ))}
+                                </select>
+                            ) : (
+                                <button 
+                                    onClick={() => setEditingId(t.receiptNo)}
+                                    className="px-2 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 rounded text-[10px] font-bold uppercase truncate max-w-[120px] hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-700 transition"
+                                >
+                                  {t.category}
+                                </button>
+                            )}
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <span className="text-emerald-600 flex items-center gap-1">● <span className="text-[11px] text-slate-600">{t.status || 'Completed'}</span></span>
@@ -300,4 +392,5 @@ export default function Dashboard({ transactions, onReset }: { transactions: Tra
     </div>
   );
 }
+
 
