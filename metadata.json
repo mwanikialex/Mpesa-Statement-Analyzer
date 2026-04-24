@@ -1,0 +1,6 @@
+{
+  "name": "M-Pesa Analyzer",
+  "description": "Analyze and visualize your M-Pesa statements with auto-categorization.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
